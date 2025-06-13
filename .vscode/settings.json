@@ -1,0 +1,42 @@
+{
+  "[json][jsonc][cpp]": {
+    "editor.formatOnSave": true,
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+    "editor.detectIndentation": false,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit"
+    }
+  },
+  "yaml.schemas": {
+    "https://json.schemastore.org/clang-format.json": ".clang-format",
+    "https://json.schemastore.org/clang-tidy.json": ".clang-tidy",
+    "https://json.schemastore.org/clangd.json": ".clangd"
+  },
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}"
+  ],
+  "clangd.fallbackFlags": [
+    "-xc++"
+  ],
+  "makefile.compileCommandsPath": "${workspaceFolder}/compile_commands.json",
+  "makefile.preConfigureScript": "${workspaceFolder}/.vscode/export.sh",
+  "makefile.configurations": [
+    {
+      "name": "Debug",
+      "makeArgs": [
+        "--jobs=4"
+      ],
+      "preConfigureArgs": [
+        "CPPFLAGS='-glldb -gsplit-dwarf'"
+      ]
+    }
+  ],
+  "makefile.launchConfigurations": [
+    {
+      "cwd": "${workspaceFolder}",
+      "binaryPath": "${workspaceFolder}/main",
+      "binaryArgs": []
+    }
+  ]
+}

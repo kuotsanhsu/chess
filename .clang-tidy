@@ -1,0 +1,5 @@
+Checks:
+  - modernize-*,-modernize-use-trailing-return-type
+  - cppcoreguidelines-*
+CheckOptions:
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
