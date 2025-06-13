@@ -65,6 +65,13 @@ struct board {
 
     // assert(src != dst); // implied by the previous conditions
 
+    auto new_pawn = pawn;
+    auto new_rook = rook;
+    auto new_knight = knight;
+    auto new_bishop = bishop;
+    auto new_queen = queen;
+    auto new_king = king;
+
     if (src & pawn) {
       // TODO: advancing 1 square
       // TODO: advancing 2 squares on first move
@@ -76,44 +83,137 @@ struct board {
       } else {
         // TODO: move white pawn
       }
+      new_pawn ^= src ^ dst;
     } else if (src & rook) {
-      int delta;
-      if (src_shift / 8 == dst_shift / 8) { // same rank
-        delta = src < dst ? 1 : -1;
-      } else if (src_shift % 8 == dst_shift % 8) { // same file
-        delta = src < dst ? 8 : -8;
+      const auto shift_diff = dst_shift - src_shift;
+      const auto rank_diff = shift_diff / 8;
+      const auto file_diff = shift_diff % 8;
+      uint64_t path = src;
+      if (rank_diff == 0) { // same rank
+        if (src < dst) {
+          path ^= dst - src;
+        } else {
+          path ^= src - dst;
+        }
+      } else if (file_diff == 0) { // same file
+        if (src < dst) {
+          constexpr uint64_t leftmost_file = 0x0101'0101'0101'0101;
+          path ^= (leftmost_file << src_shift) ^ (leftmost_file << dst_shift);
+        } else {
+          constexpr uint64_t rightmost_file = 0x8080'8080'8080'8080;
+          path ^= (rightmost_file >> (63 - src_shift)) ^ (rightmost_file >> (63 - dst_shift));
+        }
       } else {
         assert(false);
       }
       // All squares between src and dst are empty.
-      for (auto square = src; (square += delta) != dst;) {
-        assert((square & (black ^ white)) == 0);
-      }
+      assert((path & (black ^ white)) == 0);
+      new_rook ^= src ^ dst;
     } else if (src & knight) {
-      const auto diff = std::abs(dst_shift - src_shift);
-      assert((diff / 8) * (diff % 8) == 2);
+      const auto shift_diff = std::abs(dst_shift - src_shift);
+      assert((shift_diff / 8) * (shift_diff % 8) == 2);
+      new_knight ^= src ^ dst;
     } else if (src & bishop) {
-      const auto diff = dst_shift - src_shift;
-      const auto rank_diff = diff / 8; // FIXME: what if negative?
-      const auto file_diff = diff % 8; // FIXME: what if negative?
-      assert(std::abs(rank_diff) == std::abs(file_diff));
-      const auto delta = rank_diff < 0 ? (file_diff < 0 ? -9 : -7) : (file_diff < 0 ? 7 : 9);
-      // All squares between src and dst are empty.
-      for (auto square = src; (square += delta) != dst;) {
-        assert((square & (black ^ white)) == 0);
+      const auto shift_diff = dst_shift - src_shift;
+      const auto rank_diff = shift_diff / 8;
+      const auto file_diff = shift_diff % 8;
+      uint64_t path = src;
+      if (rank_diff == file_diff) {
+        const uint64_t major_diag = 0x8040'2010'0804'0201;
+        if (src < dst) {
+          path ^= (major_diag << src_shift) ^ (major_diag << dst_shift);
+        } else {
+          path ^= (major_diag >> (63 - src_shift)) ^ (major_diag >> (63 - dst_shift));
+        }
+      } else if (rank_diff == -file_diff) {
+        if (src < dst) {
+          const uint64_t diag = 0x0204'0810'2040'8001;
+          path ^= (diag << src_shift) ^ (diag << dst_shift);
+        } else {
+          const uint64_t diag = 0x8001'0204'0810'2040;
+          path ^= (diag >> (63 - src_shift)) ^ (diag >> (63 - dst_shift));
+        }
+      } else {
+        assert(false);
       }
-    } else if (src & queen) {
-      // TODO: combination of rook and bishop
+      // All squares between src and dst are empty.
+      assert((path & (black ^ white)) == 0);
+      new_bishop ^= src ^ dst;
+    } else if (src & queen) { // The combination of rook and bishop.
+      const auto shift_diff = dst_shift - src_shift;
+      const auto rank_diff = shift_diff / 8;
+      const auto file_diff = shift_diff % 8;
+      uint64_t path = src;
+      if (rank_diff == 0) { // same rank
+        if (src < dst) {
+          path ^= dst - src;
+        } else {
+          path ^= src - dst;
+        }
+      } else if (file_diff == 0) { // same file
+        if (src < dst) {
+          constexpr uint64_t leftmost_file = 0x0101'0101'0101'0101;
+          path ^= (leftmost_file << src_shift) ^ (leftmost_file << dst_shift);
+        } else {
+          constexpr uint64_t rightmost_file = 0x8080'8080'8080'8080;
+          path ^= (rightmost_file >> (63 - src_shift)) ^ (rightmost_file >> (63 - dst_shift));
+        }
+      } else if (rank_diff == file_diff) {
+        const uint64_t major_diag = 0x8040'2010'0804'0201;
+        if (src < dst) {
+          path ^= (major_diag << src_shift) ^ (major_diag << dst_shift);
+        } else {
+          path ^= (major_diag >> (63 - src_shift)) ^ (major_diag >> (63 - dst_shift));
+        }
+      } else if (rank_diff == -file_diff) {
+        if (src < dst) {
+          const uint64_t diag = 0x0204'0810'2040'8001;
+          path ^= (diag << src_shift) ^ (diag << dst_shift);
+        } else {
+          const uint64_t diag = 0x8001'0204'0810'2040;
+          path ^= (diag >> (63 - src_shift)) ^ (diag >> (63 - dst_shift));
+        }
+      } else {
+        assert(false);
+      }
+      // All squares between src and dst are empty.
+      assert((path & (black ^ white)) == 0);
+      new_queen ^= src ^ dst;
     } else if (src & king) {
-      // TODO: castling; no suicide
-      const auto diff = std::abs(dst_shift - src_shift);
-      assert((diff / 8) * (diff % 8) <= 1);
+      // TODO: castling; no suicide.
+      const auto shift_diff = std::abs(dst_shift - src_shift);
+      assert((shift_diff / 8) * (shift_diff % 8) <= 1);
+      new_king ^= src ^ dst;
     } else {
       std::unreachable();
     }
 
-    const auto new_black = black ^ (src & black) ^ (dst & black);
-    const auto new_white = white ^ (src & white) ^ (dst & white);
+    if (dst & pawn) {
+      new_pawn ^= dst;
+    } else if (dst & rook) {
+      new_rook ^= dst;
+    } else if (dst & knight) {
+      new_knight ^= dst;
+    } else if (dst & bishop) {
+      new_bishop ^= dst;
+    } else if (dst & queen) {
+      new_queen ^= dst;
+    } else if (dst & king) {
+      new_king ^= dst;
+    } else {
+      std::unreachable();
+    }
+
+    return {
+        black ^ (src & black) ^ (dst & black),
+        white ^ (src & white) ^ (dst & white),
+        new_pawn,
+        new_rook,
+        new_knight,
+        new_bishop,
+        new_queen,
+        new_king,
+    };
   }
 };
 
