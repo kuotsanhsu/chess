@@ -3,18 +3,19 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
-#include <utility>
+#include <optional>
 
 // chess board: lower-left is the dark square a1 with white rook
 // d1 is white queen, e1 is white king
 // alphabet for files (columns), digits for ranks (rows)
 // upper-left is msb, lower-right is lsb
 
-struct board {
+class board {
   const uint64_t black, white, pawn, rook, knight, bishop, queen, king;
 
-  board(board &) = delete;
-  board(board &&) = delete;
+public:
+  constexpr board(board &other) = default;
+  constexpr board(board &&other) = default;
   board &operator=(board &) = delete;
   board &operator=(board &&) = delete;
   ~board() = default;
@@ -51,162 +52,78 @@ struct board {
    * 1. Must not leave your king attacked after the move.
    * 2. Stalemate?
    */
-  constexpr board move(int src_shift, int dst_shift) {
-    assert(0 <= src_shift && src_shift < 64);
-    assert(0 <= dst_shift && dst_shift < 64);
-    const uint64_t src = 1 << src_shift, dst = 1 << dst_shift;
+  [[nodiscard]] constexpr board move(int src_shift, int dst_shift) const {
+    const class move m(src_shift, dst_shift);
 
     // src must not be empty.
-    assert((src & black) || (src & white));
+    assert(m.src(black) || m.src(white));
 
     // src and dst are NOT of the same color; dst could be empty.
-    assert(!((src & black) && (dst & black)));
-    assert(!((src & white) && (dst & white)));
+    assert(!(m.src(black) && m.dst(black)));
+    assert(!(m.src(white) && m.dst(white)));
 
     // assert(src != dst); // implied by the previous conditions
 
-    auto new_pawn = pawn;
-    auto new_rook = rook;
-    auto new_knight = knight;
-    auto new_bishop = bishop;
-    auto new_queen = queen;
-    auto new_king = king;
+    auto new_pawn = m.exclude_dst_from(pawn);
+    auto new_rook = m.exclude_dst_from(rook);
+    auto new_knight = m.exclude_dst_from(knight);
+    auto new_bishop = m.exclude_dst_from(bishop);
+    auto new_queen = m.exclude_dst_from(queen);
+    auto new_king = m.exclude_dst_from(king);
 
-    if (src & pawn) {
+    if (const auto both_ends = m.src(m.dst()); m.src(pawn)) {
       // TODO: advancing 1 square
       // TODO: advancing 2 squares on first move
       // TODO: regular capturing (diagonally forward)
       // TODO: capturing en passant
       // TODO: promotion at last rank
-      if (src & black) {
+      if (m.src(black)) {
         // TODO: move black pawn
       } else {
         // TODO: move white pawn
       }
-      new_pawn ^= src ^ dst;
-    } else if (src & rook) {
-      const auto shift_diff = dst_shift - src_shift;
-      const auto rank_diff = shift_diff / 8;
-      const auto file_diff = shift_diff % 8;
-      uint64_t path = src;
-      if (rank_diff == 0) { // same rank
-        if (src < dst) {
-          path ^= dst - src;
-        } else {
-          path ^= src - dst;
-        }
-      } else if (file_diff == 0) { // same file
-        if (src < dst) {
-          constexpr uint64_t leftmost_file = 0x0101'0101'0101'0101;
-          path ^= (leftmost_file << src_shift) ^ (leftmost_file << dst_shift);
-        } else {
-          constexpr uint64_t rightmost_file = 0x8080'8080'8080'8080;
-          path ^= (rightmost_file >> (63 - src_shift)) ^ (rightmost_file >> (63 - dst_shift));
-        }
-      } else {
-        assert(false);
-      }
-      // All squares between src and dst are empty.
-      assert((path & (black ^ white)) == 0);
-      new_rook ^= src ^ dst;
-    } else if (src & knight) {
-      const auto shift_diff = std::abs(dst_shift - src_shift);
-      assert((shift_diff / 8) * (shift_diff % 8) == 2);
-      new_knight ^= src ^ dst;
-    } else if (src & bishop) {
-      const auto shift_diff = dst_shift - src_shift;
-      const auto rank_diff = shift_diff / 8;
-      const auto file_diff = shift_diff % 8;
-      uint64_t path = src;
-      if (rank_diff == file_diff) {
-        const uint64_t major_diag = 0x8040'2010'0804'0201;
-        if (src < dst) {
-          path ^= (major_diag << src_shift) ^ (major_diag << dst_shift);
-        } else {
-          path ^= (major_diag >> (63 - src_shift)) ^ (major_diag >> (63 - dst_shift));
-        }
-      } else if (rank_diff == -file_diff) {
-        if (src < dst) {
-          const uint64_t diag = 0x0204'0810'2040'8001;
-          path ^= (diag << src_shift) ^ (diag << dst_shift);
-        } else {
-          const uint64_t diag = 0x8001'0204'0810'2040;
-          path ^= (diag >> (63 - src_shift)) ^ (diag >> (63 - dst_shift));
-        }
-      } else {
-        assert(false);
-      }
-      // All squares between src and dst are empty.
-      assert((path & (black ^ white)) == 0);
-      new_bishop ^= src ^ dst;
-    } else if (src & queen) { // The combination of rook and bishop.
-      const auto shift_diff = dst_shift - src_shift;
-      const auto rank_diff = shift_diff / 8;
-      const auto file_diff = shift_diff % 8;
-      uint64_t path = src;
-      if (rank_diff == 0) { // same rank
-        if (src < dst) {
-          path ^= dst - src;
-        } else {
-          path ^= src - dst;
-        }
-      } else if (file_diff == 0) { // same file
-        if (src < dst) {
-          constexpr uint64_t leftmost_file = 0x0101'0101'0101'0101;
-          path ^= (leftmost_file << src_shift) ^ (leftmost_file << dst_shift);
-        } else {
-          constexpr uint64_t rightmost_file = 0x8080'8080'8080'8080;
-          path ^= (rightmost_file >> (63 - src_shift)) ^ (rightmost_file >> (63 - dst_shift));
-        }
-      } else if (rank_diff == file_diff) {
-        const uint64_t major_diag = 0x8040'2010'0804'0201;
-        if (src < dst) {
-          path ^= (major_diag << src_shift) ^ (major_diag << dst_shift);
-        } else {
-          path ^= (major_diag >> (63 - src_shift)) ^ (major_diag >> (63 - dst_shift));
-        }
-      } else if (rank_diff == -file_diff) {
-        if (src < dst) {
-          const uint64_t diag = 0x0204'0810'2040'8001;
-          path ^= (diag << src_shift) ^ (diag << dst_shift);
-        } else {
-          const uint64_t diag = 0x8001'0204'0810'2040;
-          path ^= (diag >> (63 - src_shift)) ^ (diag >> (63 - dst_shift));
-        }
-      } else {
-        assert(false);
-      }
-      // All squares between src and dst are empty.
-      assert((path & (black ^ white)) == 0);
-      new_queen ^= src ^ dst;
-    } else if (src & king) {
+      new_pawn ^= both_ends;
+    } else if (m.src(king)) {
       // TODO: castling; no suicide.
-      const auto shift_diff = std::abs(dst_shift - src_shift);
-      assert((shift_diff / 8) * (shift_diff % 8) <= 1);
-      new_king ^= src ^ dst;
-    } else {
-      std::unreachable();
-    }
-
-    if (dst & pawn) {
-      new_pawn ^= dst;
-    } else if (dst & rook) {
-      new_rook ^= dst;
-    } else if (dst & knight) {
-      new_knight ^= dst;
-    } else if (dst & bishop) {
-      new_bishop ^= dst;
-    } else if (dst & queen) {
-      new_queen ^= dst;
-    } else if (dst & king) {
-      new_king ^= dst;
+      assert(m.mul_diff() < 2);
+      new_king ^= both_ends;
+    } else if (m.src(knight)) {
+      assert(m.mul_diff() == 2);
+      new_knight ^= both_ends;
+    } else if (m.src(rook)) {
+      if (const auto path = m.cardinal_path()) {
+        // All squares between src and dst are empty.
+        assert((m.src(*path) & (black ^ white)) == 0);
+      } else {
+        assert(false);
+      }
+      new_rook ^= both_ends;
+    } else if (m.src(bishop)) {
+      if (const auto path = m.ordinal_path()) {
+        // All squares between src and dst are empty.
+        assert((m.src(*path) & (black ^ white)) == 0);
+      } else {
+        assert(false);
+      }
+      new_bishop ^= both_ends;
+    } else if (m.src(queen)) {
+      if (const auto path = m.cardinal_path()) {
+        // All squares between src and dst are empty.
+        assert((m.src(*path) & (black ^ white)) == 0);
+      } else if (const auto path = m.ordinal_path()) {
+        // All squares between src and dst are empty.
+        assert((m.src(*path) & (black ^ white)) == 0);
+      } else {
+        assert(false);
+      }
+      new_queen ^= both_ends;
     } else {
       std::unreachable();
     }
 
     return {
-        black ^ (src & black) ^ (dst & black),
-        white ^ (src & white) ^ (dst & white),
+        black ^ m.src(black) ^ m.dst(black),
+        white ^ m.src(white) ^ m.dst(white),
         new_pawn,
         new_rook,
         new_knight,
@@ -215,6 +132,74 @@ struct board {
         new_king,
     };
   }
+
+private:
+  class move {
+    const int src_shift, dst_shift;
+
+    /** Returns rank-difference followed by file-difference. */
+    [[nodiscard]] constexpr auto diff() const noexcept {
+      return std::div(dst_shift - src_shift, 8);
+    }
+
+    template <uint64_t L, uint64_t R = L> [[nodiscard]] constexpr uint64_t path() const noexcept {
+      if (src_shift < dst_shift) {
+        return (L << src_shift) ^ (L << dst_shift);
+      } else {
+        return (R >> (63 ^ src_shift)) ^ (R >> (63 ^ dst_shift));
+        // static_assert((63 - x) == (63 ^ x)); // forall 0 <= x < 64
+      }
+    }
+
+  public:
+    move(move &) = delete;
+    move(move &&) = delete;
+    auto operator=(move &) = delete;
+    auto &operator=(move &&) = delete;
+    ~move() = default;
+    constexpr move(int src_shift, int dst_shift) : src_shift(src_shift), dst_shift(dst_shift) {
+      assert(0 <= src_shift && src_shift < 64);
+      assert(0 <= dst_shift && dst_shift < 64);
+    }
+
+    [[nodiscard]] constexpr uint64_t src() const noexcept { return 1 << src_shift; }
+    [[nodiscard]] constexpr uint64_t src(uint64_t mask) const noexcept { return mask & src(); }
+    [[nodiscard]] constexpr uint64_t dst() const noexcept { return 1 << dst_shift; }
+    [[nodiscard]] constexpr uint64_t dst(uint64_t mask) const noexcept { return mask & dst(); }
+    [[nodiscard]] constexpr uint64_t exclude_dst_from(uint64_t mask) const noexcept {
+      return mask & ~dst();
+    }
+
+    /** The four cardinal directions: north, south, east, and west. */
+    [[nodiscard]] constexpr std::optional<uint64_t> cardinal_path() const noexcept {
+      const auto [rank_diff, file_diff] = diff();
+      if (rank_diff == 0) { // same rank
+        return path<0xFFFF'FFFF'FFFF'FFFF>();
+      }
+      if (file_diff == 0) { // same file
+        return path<0x0101'0101'0101'0101, 0x8080'8080'8080'8080>();
+      }
+      return std::nullopt;
+    };
+
+    /** The four ordinal directions: northeast, southeast, southwest, and northwest. */
+    [[nodiscard]] constexpr std::optional<uint64_t> ordinal_path() const noexcept {
+      const auto [rank_diff, file_diff] = diff();
+      if (rank_diff == file_diff) { // northwest-southeast
+        return path<0x8040'2010'0804'0201>();
+      }
+      if (rank_diff == -file_diff) { // northeast-southwest
+        return path<0x0204'0810'2040'8001, 0x8001'0204'0810'2040>();
+      }
+      return std::nullopt;
+    };
+
+    /** The absolute value of the product of rank-difference and file-difference. */
+    [[nodiscard]] constexpr int mul_diff() const noexcept {
+      const auto [rank_diff, file_diff] = diff();
+      return std::abs(rank_diff * file_diff);
+    }
+  };
 };
 
 int main() { board initial; }
