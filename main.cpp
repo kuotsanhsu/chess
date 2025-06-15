@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
+#include <utility>
 
 // chess board: lower-left is the dark square a1 with white rook
 // d1 is white queen, e1 is white king
@@ -13,20 +14,24 @@
 class board {
   const uint64_t black, white, pawn, rook, knight, bishop, queen, king;
 
+public:
+  using iterator = unsigned _BitInt(6);
+
   class move {
     const int src_shift, dst_shift;
 
-  public:
-    move(move &) = delete;
-    move(move &&) = delete;
-    auto operator=(move &) = delete;
-    auto &operator=(move &&) = delete;
-    ~move() = default;
-
-    constexpr move(int src_shift, int dst_shift) : src_shift(src_shift), dst_shift(dst_shift) {
-      assert(0 <= src_shift && src_shift < 64);
-      assert(0 <= dst_shift && dst_shift < 64);
+    template <uint64_t L, uint64_t R = L> [[nodiscard]] constexpr uint64_t path() const noexcept {
+      if (src_shift < dst_shift) {
+        return (L << src_shift) ^ (L << dst_shift);
+      } else {
+        return (R >> (63 ^ src_shift)) ^ (R >> (63 ^ dst_shift));
+        // static_assert((63 - x) == (63 ^ x)); // forall 0 <= x < 64
+      }
     }
+
+  public:
+    move(const iterator src_shift, const iterator dst_shift)
+        : src_shift(src_shift), dst_shift(dst_shift) {}
 
     [[nodiscard]] constexpr uint64_t src() const noexcept { return 1 << src_shift; }
     [[nodiscard]] constexpr uint64_t src(uint64_t mask) const noexcept { return mask & src(); }
@@ -41,13 +46,10 @@ class board {
       return std::div(dst_shift - src_shift, 8);
     }
 
-    template <uint64_t L, uint64_t R = L> [[nodiscard]] constexpr uint64_t path() const noexcept {
-      if (src_shift < dst_shift) {
-        return (L << src_shift) ^ (L << dst_shift);
-      } else {
-        return (R >> (63 ^ src_shift)) ^ (R >> (63 ^ dst_shift));
-        // static_assert((63 - x) == (63 ^ x)); // forall 0 <= x < 64
-      }
+    /** The absolute value of the product of rank-difference and file-difference. */
+    [[nodiscard]] constexpr int mul_diff() const noexcept {
+      const auto [rank_diff, file_diff] = diff();
+      return std::abs(rank_diff * file_diff);
     }
 
     /** The four cardinal directions: north, south, east, and west. */
@@ -73,20 +75,24 @@ class board {
       }
       return std::nullopt;
     };
-
-    /** The absolute value of the product of rank-difference and file-difference. */
-    [[nodiscard]] constexpr int mul_diff() const noexcept {
-      const auto [rank_diff, file_diff] = diff();
-      return std::abs(rank_diff * file_diff);
-    }
   };
 
-  [[nodiscard]] constexpr bool empty(uint64_t mask) const noexcept {
+private:
+  [[nodiscard]] constexpr bool empty(const uint64_t mask) const noexcept {
     return !(mask & (black ^ white));
   }
 
-  [[nodiscard]] constexpr bool check() const noexcept {
-    return false; // TODO
+  [[nodiscard]] constexpr bool check(const bool is_white) const noexcept {
+    const auto dst_shift = std::countr_zero(king & (is_white ? white : black));
+    uint64_t opponent = is_white ? black : white;
+    do { // `opponent` will never begin as 0, as there is always a king.
+      const uint64_t attacker = opponent & -opponent; // Lowest set bit.
+      if (test_move(move(std::countr_zero(attacker), dst_shift)) != test_move_result_t::invalid) {
+        return true;
+      }
+      opponent ^= attacker;
+    } while (opponent);
+    return false;
   }
 
 public:
@@ -102,8 +108,9 @@ public:
               0x8100'0000'0000'0081, 0x4200'0000'0000'0042, 0x2400'0000'0000'0024,
               0x1000'0000'0000'0010, 0x0800'0000'0000'0008) {}
 
-  constexpr board(uint64_t black, uint64_t white, uint64_t pawn, uint64_t rook, uint64_t knight,
-                  uint64_t bishop, uint64_t queen, uint64_t king)
+  constexpr board(const uint64_t black, const uint64_t white, const uint64_t pawn,
+                  const uint64_t rook, const uint64_t knight, const uint64_t bishop,
+                  const uint64_t queen, const uint64_t king)
       : black(black), white(white), pawn(pawn), rook(rook), knight(knight), bishop(bishop),
         queen(queen), king(king) {
     // There are exactly 2 kings.
@@ -128,16 +135,21 @@ public:
    * 1. Must not leave your king attacked after the move.
    * 2. Stalemate?
    */
-  [[nodiscard]] constexpr board move(int src_shift, int dst_shift) const {
-    const class move m(src_shift, dst_shift);
+  [[nodiscard]] constexpr std::optional<board> try_move(const move m) const {
     // TODO: escape if in check; otherwise, checkmate.
 
     // src must not be empty.
-    assert(m.src(black) || m.src(white));
+    if (!m.src(black) && !m.src(white)) {
+      return std::nullopt;
+    }
 
     // src and dst are NOT of the same color; dst could be empty.
-    assert(!(m.src(black) && m.dst(black)));
-    assert(!(m.src(white) && m.dst(white)));
+    if (m.src(black) && m.dst(black)) {
+      return std::nullopt;
+    }
+    if (m.src(white) && m.dst(white)) {
+      return std::nullopt;
+    }
 
     // assert(src != dst); // implied by the previous conditions
 
@@ -148,7 +160,48 @@ public:
     auto new_queen = m.exclude_dst_from(queen);
     auto new_king = m.exclude_dst_from(king);
 
-    if (const auto both_ends = m.src(m.dst()); m.src(pawn)) {
+    switch (const auto both_ends = m.src(m.dst()); test_move(m)) {
+    case test_move_result_t::invalid:
+      return std::nullopt;
+    case test_move_result_t::pawn:
+      new_pawn ^= both_ends;
+      break;
+    case test_move_result_t::rook:
+      new_rook ^= both_ends;
+      break;
+    case test_move_result_t::knight:
+      new_knight ^= both_ends;
+      break;
+    case test_move_result_t::bishop:
+      new_bishop ^= both_ends;
+      break;
+    case test_move_result_t::queen:
+      new_queen ^= both_ends;
+      break;
+    case test_move_result_t::king:
+      new_king ^= both_ends;
+      break;
+    }
+
+    if (check(m.src(white))) {
+      return std::nullopt;
+    }
+    return board{
+        black ^ m.src(black) ^ m.dst(black),
+        white ^ m.src(white) ^ m.dst(white),
+        new_pawn,
+        new_rook,
+        new_knight,
+        new_bishop,
+        new_queen,
+        new_king,
+    };
+  }
+
+  enum class test_move_result_t { invalid, pawn, rook, knight, bishop, queen, king };
+
+  [[nodiscard]] constexpr test_move_result_t test_move(const class move m) const {
+    if (m.src(pawn)) {
       // TODO: advancing 1 square
       // TODO: advancing 2 squares on first move
       // TODO: regular capturing
@@ -192,56 +245,43 @@ public:
           assert(false);
         }
       }
-      new_pawn ^= both_ends;
+      return test_move_result_t::pawn;
     } else if (m.src(king)) {
-      // TODO: castling; no suicide.
-      assert(m.mul_diff() < 2);
-      new_king ^= both_ends;
+      if (m.mul_diff() < 2) {
+        return test_move_result_t::king;
+      } else {
+        // TODO: castling; no suicide.
+      }
     } else if (m.src(knight)) {
-      assert(m.mul_diff() == 2);
-      new_knight ^= both_ends;
+      if (m.mul_diff() == 2) {
+        return test_move_result_t::knight;
+      }
     } else if (m.src(rook)) {
       if (const auto path = m.cardinal_path()) {
-        // All squares between src and dst are empty.
-        assert(empty(m.src(*path)));
-      } else {
-        assert(false);
+        if (empty(m.src(*path))) { // All squares between src and dst are empty.
+          return test_move_result_t::rook;
+        }
       }
-      new_rook ^= both_ends;
     } else if (m.src(bishop)) {
       if (const auto path = m.ordinal_path()) {
-        // All squares between src and dst are empty.
-        assert(empty(m.src(*path)));
-      } else {
-        assert(false);
+        if (empty(m.src(*path))) { // All squares between src and dst are empty.
+          return test_move_result_t::bishop;
+        }
       }
-      new_bishop ^= both_ends;
     } else if (m.src(queen)) {
       if (const auto path = m.cardinal_path()) {
-        // All squares between src and dst are empty.
-        assert(empty(m.src(*path)));
+        if (empty(m.src(*path))) { // All squares between src and dst are empty.
+          return test_move_result_t::queen;
+        }
       } else if (const auto path = m.ordinal_path()) {
-        // All squares between src and dst are empty.
-        assert(empty(m.src(*path)));
-      } else {
-        assert(false);
+        if (empty(m.src(*path))) { // All squares between src and dst are empty.
+          return test_move_result_t::queen;
+        }
       }
-      new_queen ^= both_ends;
     } else {
       std::unreachable();
     }
-
-    // TODO: assert not in check.
-    return {
-        black ^ m.src(black) ^ m.dst(black),
-        white ^ m.src(white) ^ m.dst(white),
-        new_pawn,
-        new_rook,
-        new_knight,
-        new_bishop,
-        new_queen,
-        new_king,
-    };
+    return test_move_result_t::invalid;
   }
 };
 
