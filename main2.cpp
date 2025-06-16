@@ -327,22 +327,29 @@ struct ply {
   bool white_turn;
 };
 
-constexpr const char *piece_glyph(piece piece) noexcept {
-  switch (piece) {
+struct colored_piece {
+  piece piece;
+  bool is_white;
+};
+
+// https://stackoverflow.com/a/8327034
+std::ostream &operator<<(std::ostream &os, const colored_piece &cp) {
+  const auto fgcolor{cp.is_white ? "\033[1;97m" : "\033[1;92m"};
+  switch (cp.piece) {
   case piece::empty:
-    return "　";
+    return os << fgcolor << "　";
   case piece::pawn:
-    return "Ｐ";
+    return os << fgcolor << (cp.is_white ? "Ｐ" : "ｐ");
   case piece::rook:
-    return "Ｒ";
+    return os << fgcolor << (cp.is_white ? "Ｒ" : "ｒ");
   case piece::knight:
-    return "Ｎ";
+    return os << fgcolor << (cp.is_white ? "Ｎ" : "ｎ");
   case piece::bishop:
-    return "Ｂ";
+    return os << fgcolor << (cp.is_white ? "Ｂ" : "ｂ");
   case piece::queen:
-    return "Ｑ";
+    return os << fgcolor << (cp.is_white ? "Ｑ" : "ｑ");
   case piece::king:
-    return "Ｋ";
+    return os << fgcolor << (cp.is_white ? "Ｋ" : "ｋ");
   }
 }
 
@@ -365,11 +372,9 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
   auto square = board.cbegin();
   auto pos = uint64_t{1} << 63;
   for (const char *rank : {"ｈ", "ｇ", "ｆ", "ｅ", "ｄ", "ｃ", "ｂ", "ａ"}) {
-    constexpr std::array fgcolors = {"\033[1;92m", "\033[1;97m"};
     os << rank;
     for (const auto _ : std::views::iota(0, 8)) {
-      const bool is_white = pos & config.white.get_occupancy();
-      os << *bgcolor++ << fgcolors[is_white] << piece_glyph(*square++);
+      os << *bgcolor++ << colored_piece(*square++, pos & config.white.get_occupancy());
       pos >>= 1;
     }
     os << hint_color << rank << '\n';

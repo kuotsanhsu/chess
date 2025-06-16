@@ -1,4 +1,5 @@
 {
+  "terminal.integrated.minimumContrastRatio": 1,
   "[json][jsonc][cpp]": {
     "editor.formatOnSave": true,
     "editor.insertSpaces": true,
@@ -38,5 +39,6 @@
       "binaryPath": "${workspaceFolder}/main",
       "binaryArgs": []
     }
-  ]
+  ],
+  "makefile.configureOnOpen": false
 }
