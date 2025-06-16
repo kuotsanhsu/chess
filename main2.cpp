@@ -1,9 +1,7 @@
 #include <algorithm>
-#include <array>
 #include <cassert>
-#include <cstdlib>
+#include <iostream>
 #include <ranges>
-#include <utility>
 
 enum class piece { empty, pawn, rook, knight, bishop, queen, king };
 
@@ -24,12 +22,12 @@ class side {
     // assert(std::ranges::size(r1) + std::ranges::size(r2) + std::ranges::size(r3) == 64);
     constexpr auto populate = []<typename R>(side side, R &&pieces) -> class side {
       for (const piece piece : pieces) {
+        side.occupancy <<= 1;
         if (piece != piece::empty) {
           side.occupancy ^= 1;
           side.pieces <<= 4;
           side.pieces ^= std::to_underlying(piece);
         }
-        side.occupancy <<= 1;
       }
       return side;
     };
@@ -89,6 +87,7 @@ public:
 
     constexpr iterator &operator++() {
       occupancy ^= lowest_set_bit();
+      pieces >>= 4;
       return *this;
     }
 
@@ -98,7 +97,7 @@ public:
       return old;
     }
 
-    constexpr bool operator==(std::default_sentinel_t) const noexcept { return occupancy; }
+    constexpr bool operator==(std::default_sentinel_t) const noexcept { return occupancy == 0; }
   };
 
   [[nodiscard]] constexpr iterator begin() const noexcept { return *this; };
@@ -143,12 +142,6 @@ public:
 
   /** Returns rank-difference followed by file-difference. */
   [[nodiscard]] constexpr auto diff() const noexcept { return std::div(dst_shift - src_shift, 8); }
-
-  /** The absolute value of the product of rank-difference and file-difference. */
-  [[nodiscard]] constexpr int mul_diff() const noexcept {
-    const auto [rank_diff, file_diff] = diff();
-    return std::abs(rank_diff * file_diff);
-  }
 
   /** The four cardinal directions: north, south, east, and west. */
   [[nodiscard]] constexpr std::optional<uint64_t> cardinal_path() const noexcept {
@@ -294,10 +287,14 @@ public:
         }
       }
       return true;
-    case piece::king:
-      return m.mul_diff() < 2;
-    case piece::knight:
-      return m.mul_diff() == 2;
+    case piece::king: {
+      const auto [rank_diff, file_diff] = m.diff();
+      return std::max(std::abs(rank_diff), std::abs(file_diff)) == 1; // max-norm
+    }
+    case piece::knight: {
+      const auto [rank_diff, file_diff] = m.diff();
+      return std::abs(rank_diff * file_diff) == 2;
+    }
     case piece::rook:
       if (const auto path = m.cardinal_path()) {
         return empty(m.src(*path)); // All squares between src and dst are empty.
@@ -321,6 +318,8 @@ public:
     }
     std::unreachable();
   }
+
+  friend std::ostream &operator<<(std::ostream &os, const configuration &config);
 };
 
 struct ply {
@@ -328,6 +327,91 @@ struct ply {
   bool white_turn;
 };
 
+// https://en.wikipedia.org/wiki/ANSI_escape_code#24-bit
+// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+namespace truecolor {
+
+constexpr auto reset{"\033[0m"};
+
+constexpr std::string color(uint8_t red, uint8_t green, uint8_t blue) {
+  // return std::format("\033[{}8;2;{};{};{}m", magic, red, green, blue);
+  char array[] = "RRR;GGG;BBBm";
+  auto first = std::begin(array);
+  const auto last = std::end(array);
+  first = std::to_chars(first, last, red).ptr;
+  *first++ = ';';
+  first = std::to_chars(first, last, green).ptr;
+  *first++ = ';';
+  first = std::to_chars(first, last, blue).ptr;
+  *first++ = 'm';
+  *first = '\0';
+  return array;
+};
+
+constexpr auto background(uint8_t red, uint8_t green, uint8_t blue) {
+  // return std::format("\033[48;2;{};{};{}m", red, green, blue);
+  return std::string{"\033[48;2;"} + color(red, green, blue);
+};
+
+constexpr auto foreground(uint8_t red, uint8_t green, uint8_t blue) {
+  // return std::format("\033[38;2;{};{};{}m", red, green, blue);
+  return std::string{"\033[1;38;2;"} + color(red, green, blue); // "1;" for bold.
+};
+
+} // namespace truecolor
+
+char piece_glyph(piece piece) {
+  switch (piece) {
+  case piece::empty:
+    return '.';
+  case piece::pawn:
+    return 'P';
+  case piece::rook:
+    return 'R';
+  case piece::knight:
+    return 'N';
+  case piece::bishop:
+    return 'B';
+  case piece::queen:
+    return 'Q';
+  case piece::king:
+    return 'K';
+  }
+}
+
+static_assert(truecolor::background(0xEE, 0xDC, 0x97) == "\033[48;2;238;220;151m");
+
+std::ostream &operator<<(std::ostream &os, const configuration &config) {
+  std::array<char, 64> board;
+  std::ranges::fill(board, ' ');
+  for (const auto v : config.white) {
+    board[63 ^ std::countr_zero(v.square)] = piece_glyph(v.piece);
+  }
+  for (const auto v : config.black) {
+    board[63 ^ std::countr_zero(v.square)] = piece_glyph(v.piece);
+  }
+  using namespace std::string_view_literals;
+  constexpr std::string file_hint{"   1 2 3 4 5 6 7 8  \n"};
+  constexpr auto bgcolors = std::views::repeat(std::to_array({
+                                truecolor::background(0xEE, 0xDC, 0x97), // #eedc97
+                                truecolor::background(0x96, 0x4D, 0x22), // #964d22
+                            })) |
+                            std::views::join;
+  auto bgcolor = std::ranges::begin(bgcolors);
+  os << file_hint;
+  for (auto square = board.cbegin(); const char rank : "hgfedcba"sv) {
+    constexpr auto fgcolor = truecolor::foreground(0, 0, 0);
+    os << ' ' << rank << fgcolor;
+    for (const char _ : "12345678"sv) {
+      os << *bgcolor++ << ' ' << *square++;
+    }
+    os << truecolor::reset << ' ' << rank << '\n';
+    ++bgcolor;
+  }
+  return os << file_hint;
+}
+
 int main() {
-  // const auto black
+  constexpr configuration config;
+  std::cout << config << std::endl;
 }

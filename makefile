@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := main
+.DEFAULT_GOAL := main2
 .SUFFIXES:
 .SUFFIXES: .cpp .o
 
@@ -8,10 +8,11 @@ deps := $(objs:.o=.d)
 -include $(deps)
 CXXFLAGS += -std=c++23 -fno-exceptions -Wno-c23-extensions
 CPPFLAGS += -MMD -MP -Werror -Wpointer-arith -Wimplicit-fallthrough
-LDFLAGS += -flto=thin
+# LDFLAGS += -flto=thin
 
 main: main.o
-main:
+main2: main2.o
+main main2:
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 .PHONY: clean cleanall
