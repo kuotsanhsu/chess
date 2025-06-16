@@ -3,6 +3,8 @@
 #include <iostream>
 #include <ranges>
 
+using shift_t = unsigned _BitInt(6);
+
 enum class piece { empty, pawn, rook, knight, bishop, queen, king };
 
 template <typename R>
@@ -53,10 +55,10 @@ private:
 public:
   [[nodiscard]] constexpr auto get_occupancy() const noexcept { return occupancy; }
 
-  [[nodiscard]] constexpr uint64_t get_king_square() const noexcept {
-    for (const auto v : *this) {
-      if (v.piece == piece::king) {
-        return v.square;
+  [[nodiscard]] constexpr auto get_king_square() const noexcept {
+    for (const auto [piece, shift] : *this) {
+      if (piece == piece::king) {
+        return shift;
       }
     }
     assert(false); // FIXME: std::unreachable();
@@ -65,28 +67,21 @@ public:
   class iterator {
     uint64_t occupancy, pieces;
 
-    [[nodiscard]] constexpr uint64_t lowest_set_bit() const noexcept {
-      return occupancy & -occupancy;
-    }
-
   public:
     using difference_type = std::ptrdiff_t;
     struct value_type {
       piece piece;
-      uint64_t square;
+      shift_t shift;
     };
 
-    constexpr iterator(const side side) : occupancy(side.occupancy), pieces(side.pieces) {}
+    constexpr iterator(const side &side) : occupancy(side.occupancy), pieces(side.pieces) {}
 
     constexpr value_type operator*() const noexcept {
-      return {
-          .piece = static_cast<piece>(pieces & 0xF),
-          .square = lowest_set_bit(),
-      };
+      return value_type(static_cast<piece>(pieces & 0xF), std::countr_zero(occupancy));
     }
 
     constexpr iterator &operator++() {
-      occupancy ^= lowest_set_bit();
+      occupancy ^= occupancy & -occupancy; // Clear lowest set bit.
       pieces >>= 4;
       return *this;
     }
@@ -121,8 +116,8 @@ class move {
   }
 
 public:
-  constexpr move(const uint64_t src_square, const uint64_t dst_square) noexcept
-      : src_shift(std::countr_zero(src_square)), dst_shift(std::countr_zero(dst_square)) {}
+  constexpr move(const shift_t src_shift, const shift_t dst_shift) noexcept
+      : src_shift(src_shift), dst_shift(dst_shift) {}
 
   [[nodiscard]] constexpr uint64_t src() const noexcept { return 1 << src_shift; }
   [[nodiscard]] constexpr uint64_t src(const uint64_t mask) const noexcept { return mask & src(); }
@@ -194,10 +189,10 @@ class configuration {
   }
 
   [[nodiscard]] constexpr bool check(const bool is_white) const noexcept {
-    const auto dst_square = std::countr_zero((is_white ? white : black).get_king_square());
+    const auto dst_shift = (is_white ? white : black).get_king_square();
     const auto opponent = is_white ? black : white;
-    for (const auto v : opponent) {
-      if (test_move(v.piece, move(std::countr_zero(v.square), dst_square))) {
+    for (const auto [piece, shift] : opponent) {
+      if (test_move(piece, move(shift, dst_shift))) {
         return true;
       }
     }
@@ -357,11 +352,11 @@ std::ostream &operator<<(std::ostream &os, const colored_piece &cp) {
 std::ostream &operator<<(std::ostream &os, const configuration &config) {
   std::array<piece, 64> board;
   std::ranges::fill(board, piece::empty);
-  for (const auto v : config.white) {
-    board[63 ^ std::countr_zero(v.square)] = v.piece;
+  for (const auto [piece, shift] : config.white) {
+    board[63 ^ shift] = piece;
   }
-  for (const auto v : config.black) {
-    board[63 ^ std::countr_zero(v.square)] = v.piece;
+  for (const auto [piece, shift] : config.black) {
+    board[63 ^ shift] = piece;
   }
   constexpr const char *file_hint{"　１２３４５６７８　\n"};
   constexpr auto bgcolors =
