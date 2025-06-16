@@ -360,35 +360,73 @@ constexpr auto foreground(uint8_t red, uint8_t green, uint8_t blue) {
 
 } // namespace truecolor
 
-char piece_glyph(piece piece) {
+constexpr const char *piece_glyph_latin(piece piece) noexcept {
   switch (piece) {
   case piece::empty:
-    return '.';
+    return "  ";
   case piece::pawn:
-    return 'P';
+    return " P";
   case piece::rook:
-    return 'R';
+    return " R";
   case piece::knight:
-    return 'N';
+    return " N";
   case piece::bishop:
-    return 'B';
+    return " B";
   case piece::queen:
-    return 'Q';
+    return " Q";
   case piece::king:
-    return 'K';
+    return " K";
+  }
+}
+
+constexpr const char *piece_glyph_fullwidth_latin(piece piece) noexcept {
+  switch (piece) {
+  case piece::empty:
+    return "　";
+  case piece::pawn:
+    return "Ｐ";
+  case piece::rook:
+    return "Ｒ";
+  case piece::knight:
+    return "Ｎ";
+  case piece::bishop:
+    return "Ｂ";
+  case piece::queen:
+    return "Ｑ";
+  case piece::king:
+    return "Ｋ";
+  }
+}
+
+constexpr const char *piece_glyph_chess_symbol(piece piece) noexcept {
+  switch (piece) {
+  case piece::empty:
+    return "  ";
+  case piece::pawn:
+    return " ♟";
+  case piece::rook:
+    return " ♜";
+  case piece::knight:
+    return " ♞";
+  case piece::bishop:
+    return " ♝";
+  case piece::queen:
+    return " ♛";
+  case piece::king:
+    return " ♚";
   }
 }
 
 static_assert(truecolor::background(0xEE, 0xDC, 0x97) == "\033[48;2;238;220;151m");
 
 std::ostream &operator<<(std::ostream &os, const configuration &config) {
-  std::array<char, 64> board;
-  std::ranges::fill(board, ' ');
+  std::array<piece, 64> board;
+  std::ranges::fill(board, piece::empty);
   for (const auto v : config.white) {
-    board[63 ^ std::countr_zero(v.square)] = piece_glyph(v.piece);
+    board[63 ^ std::countr_zero(v.square)] = v.piece;
   }
   for (const auto v : config.black) {
-    board[63 ^ std::countr_zero(v.square)] = piece_glyph(v.piece);
+    board[63 ^ std::countr_zero(v.square)] = v.piece;
   }
   using namespace std::string_view_literals;
   constexpr std::string file_hint{"   1 2 3 4 5 6 7 8  \n"};
@@ -403,7 +441,7 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
     constexpr auto fgcolor = truecolor::foreground(0, 0, 0);
     os << ' ' << rank << fgcolor;
     for (const char _ : "12345678"sv) {
-      os << *bgcolor++ << ' ' << *square++;
+      os << *bgcolor++ << piece_glyph_fullwidth_latin(*square++);
     }
     os << truecolor::reset << ' ' << rank << '\n';
     ++bgcolor;
