@@ -327,59 +327,7 @@ struct ply {
   bool white_turn;
 };
 
-// https://en.wikipedia.org/wiki/ANSI_escape_code#24-bit
-// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-namespace truecolor {
-
-constexpr auto reset{"\033[0m"};
-
-constexpr std::string color(uint8_t red, uint8_t green, uint8_t blue) {
-  // return std::format("\033[{}8;2;{};{};{}m", magic, red, green, blue);
-  char array[] = "RRR;GGG;BBBm";
-  auto first = std::begin(array);
-  const auto last = std::end(array);
-  first = std::to_chars(first, last, red).ptr;
-  *first++ = ';';
-  first = std::to_chars(first, last, green).ptr;
-  *first++ = ';';
-  first = std::to_chars(first, last, blue).ptr;
-  *first++ = 'm';
-  *first = '\0';
-  return array;
-};
-
-constexpr auto background(uint8_t red, uint8_t green, uint8_t blue) {
-  // return std::format("\033[48;2;{};{};{}m", red, green, blue);
-  return std::string{"\033[48;2;"} + color(red, green, blue);
-};
-
-constexpr auto foreground(uint8_t red, uint8_t green, uint8_t blue) {
-  // return std::format("\033[38;2;{};{};{}m", red, green, blue);
-  return std::string{"\033[1;38;2;"} + color(red, green, blue); // "1;" for bold.
-};
-
-} // namespace truecolor
-
-constexpr const char *piece_glyph_latin(piece piece) noexcept {
-  switch (piece) {
-  case piece::empty:
-    return "  ";
-  case piece::pawn:
-    return " P";
-  case piece::rook:
-    return " R";
-  case piece::knight:
-    return " N";
-  case piece::bishop:
-    return " B";
-  case piece::queen:
-    return " Q";
-  case piece::king:
-    return " K";
-  }
-}
-
-constexpr const char *piece_glyph_fullwidth_latin(piece piece) noexcept {
+constexpr const char *piece_glyph(piece piece) noexcept {
   switch (piece) {
   case piece::empty:
     return "　";
@@ -398,27 +346,7 @@ constexpr const char *piece_glyph_fullwidth_latin(piece piece) noexcept {
   }
 }
 
-constexpr const char *piece_glyph_chess_symbol(piece piece) noexcept {
-  switch (piece) {
-  case piece::empty:
-    return "  ";
-  case piece::pawn:
-    return " ♟";
-  case piece::rook:
-    return " ♜";
-  case piece::knight:
-    return " ♞";
-  case piece::bishop:
-    return " ♝";
-  case piece::queen:
-    return " ♛";
-  case piece::king:
-    return " ♚";
-  }
-}
-
-static_assert(truecolor::background(0xEE, 0xDC, 0x97) == "\033[48;2;238;220;151m");
-
+// https://askubuntu.com/a/558422
 std::ostream &operator<<(std::ostream &os, const configuration &config) {
   std::array<piece, 64> board;
   std::ranges::fill(board, piece::empty);
@@ -428,25 +356,26 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
   for (const auto v : config.black) {
     board[63 ^ std::countr_zero(v.square)] = v.piece;
   }
-  using namespace std::string_view_literals;
-  constexpr std::string file_hint{"   1 2 3 4 5 6 7 8  \n"};
-  constexpr auto bgcolors = std::views::repeat(std::to_array({
-                                truecolor::background(0xEE, 0xDC, 0x97), // #eedc97
-                                truecolor::background(0x96, 0x4D, 0x22), // #964d22
-                            })) |
-                            std::views::join;
+  constexpr const char *file_hint{"　１２３４５６７８　\n"};
+  constexpr auto bgcolors =
+      std::views::repeat(std::array{"\033[1;104m", "\033[1;44m"}) | std::views::join;
   auto bgcolor = std::ranges::begin(bgcolors);
-  os << file_hint;
-  for (auto square = board.cbegin(); const char rank : "hgfedcba"sv) {
-    constexpr auto fgcolor = truecolor::foreground(0, 0, 0);
-    os << ' ' << rank << fgcolor;
-    for (const char _ : "12345678"sv) {
-      os << *bgcolor++ << piece_glyph_fullwidth_latin(*square++);
+  constexpr const char *hint_color{"\033[0;49;90m"};
+  os << hint_color << file_hint;
+  auto square = board.cbegin();
+  auto pos = uint64_t{1} << 63;
+  for (const char *rank : {"ｈ", "ｇ", "ｆ", "ｅ", "ｄ", "ｃ", "ｂ", "ａ"}) {
+    constexpr std::array fgcolors = {"\033[1;92m", "\033[1;97m"};
+    os << rank;
+    for (const auto _ : std::views::iota(0, 8)) {
+      const bool is_white = pos & config.white.get_occupancy();
+      os << *bgcolor++ << fgcolors[is_white] << piece_glyph(*square++);
+      pos >>= 1;
     }
-    os << truecolor::reset << ' ' << rank << '\n';
+    os << hint_color << rank << '\n';
     ++bgcolor;
   }
-  return os << file_hint;
+  return os << file_hint << "\033[0m";
 }
 
 int main() {
