@@ -1,15 +1,12 @@
+#include "ansi_escape_code.hpp"
 #include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <ranges>
 
-using shift_t = unsigned _BitInt(6);
+using square = unsigned _BitInt(6);
 
 enum class piece { empty, pawn, rook, knight, bishop, queen, king };
-
-template <typename R>
-concept sized_piece_range =
-    std::ranges::sized_range<R> && std::same_as<std::ranges::range_value_t<R>, piece>;
 
 class side {
   static constexpr std::array initial_rank1{
@@ -19,10 +16,9 @@ class side {
   static constexpr std::ranges::repeat_view initial_rank2{piece::pawn, 8};
   static constexpr std::ranges::repeat_view initial_rank3{piece::empty, 48};
 
-  template <sized_piece_range R1, sized_piece_range R2, sized_piece_range R3>
-  static constexpr side initial(R1 &&r1, R2 &&r2, R3 &&r3) noexcept {
+  static constexpr side initial(auto &&r1, auto &&r2, auto &&r3) noexcept {
     // assert(std::ranges::size(r1) + std::ranges::size(r2) + std::ranges::size(r3) == 64);
-    constexpr auto populate = []<typename R>(side side, R &&pieces) -> class side {
+    constexpr auto populate = [](side side, auto &&pieces) -> class side {
       for (const piece piece : pieces) {
         side.occupancy <<= 1;
         if (piece != piece::empty) {
@@ -71,7 +67,7 @@ public:
     using difference_type = std::ptrdiff_t;
     struct value_type {
       piece piece;
-      shift_t shift;
+      square square;
     };
 
     constexpr iterator(const side &side) : occupancy(side.occupancy), pieces(side.pieces) {}
@@ -103,29 +99,29 @@ public:
 static_assert(std::ranges::sized_range<side>);
 
 class move {
-  int src_shift, dst_shift;
+  int src_square, dst_square;
 
   template <uint64_t L, uint64_t R = L>
   [[nodiscard]] constexpr uint64_t straight_path() const noexcept {
-    if (src_shift < dst_shift) {
-      return (L << src_shift) ^ (L << dst_shift);
+    if (src_square < dst_square) {
+      return (L << src_square) ^ (L << dst_square);
     } else {
-      return (R >> (63 ^ src_shift)) ^ (R >> (63 ^ dst_shift));
+      return (R >> (63 ^ src_square)) ^ (R >> (63 ^ dst_square));
       // static_assert((63 - x) == (63 ^ x)); // forall 0 <= x < 64
     }
   }
 
 public:
-  constexpr move(const shift_t src_shift, const shift_t dst_shift) noexcept
-      : src_shift(src_shift), dst_shift(dst_shift) {}
+  constexpr move(const square src_square, const square dst_square) noexcept
+      : src_square(src_square), dst_square(dst_square) {}
 
-  [[nodiscard]] constexpr uint64_t src() const noexcept { return 1 << src_shift; }
+  [[nodiscard]] constexpr uint64_t src() const noexcept { return uint64_t{1} << src_square; }
   [[nodiscard]] constexpr uint64_t src(const uint64_t mask) const noexcept { return mask & src(); }
   [[nodiscard]] constexpr uint64_t src(const side side) const noexcept {
     return src(side.get_occupancy());
   }
 
-  [[nodiscard]] constexpr uint64_t dst() const noexcept { return 1 << dst_shift; }
+  [[nodiscard]] constexpr uint64_t dst() const noexcept { return uint64_t{1} << dst_square; }
   [[nodiscard]] constexpr uint64_t dst(const uint64_t mask) const noexcept { return mask & dst(); }
   [[nodiscard]] constexpr uint64_t dst(const side side) const noexcept {
     return dst(side.get_occupancy());
@@ -136,7 +132,9 @@ public:
   }
 
   /** Returns rank-difference followed by file-difference. */
-  [[nodiscard]] constexpr auto diff() const noexcept { return std::div(dst_shift - src_shift, 8); }
+  [[nodiscard]] constexpr auto diff() const noexcept {
+    return std::div(dst_square - src_square, 8);
+  }
 
   /** The four cardinal directions: north, south, east, and west. */
   [[nodiscard]] constexpr std::optional<uint64_t> cardinal_path() const noexcept {
@@ -189,10 +187,10 @@ class configuration {
   }
 
   [[nodiscard]] constexpr bool check(const bool is_white) const noexcept {
-    const auto dst_shift = (is_white ? white : black).get_king_square();
+    const auto dst_square = (is_white ? white : black).get_king_square();
     const auto opponent = is_white ? black : white;
     for (const auto [piece, shift] : opponent) {
-      if (test_move(piece, move(shift, dst_shift))) {
+      if (test_move(piece, move(shift, dst_square))) {
         return true;
       }
     }
@@ -329,7 +327,11 @@ struct colored_piece {
 
 // https://stackoverflow.com/a/8327034
 std::ostream &operator<<(std::ostream &os, const colored_piece &cp) {
-  const auto fgcolor{cp.is_white ? "\033[1;97m" : "\033[1;92m"};
+  constexpr std::array fgcolors{
+      ansi::foreground_bright(ansi::color::green),
+      ansi::foreground_bright(ansi::color::white),
+  };
+  const auto fgcolor = fgcolors[cp.is_white];
   switch (cp.piece) {
   case piece::empty:
     return os << fgcolor << "　";
@@ -358,15 +360,18 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
   for (const auto [piece, shift] : config.black) {
     board[63 ^ shift] = piece;
   }
-  constexpr const char *file_hint{"　１２３４５６７８　\n"};
-  constexpr auto bgcolors =
-      std::views::repeat(std::array{"\033[1;104m", "\033[1;44m"}) | std::views::join;
+  constexpr auto file_hint{"　１２３４５６７８　"};
+  constexpr auto bgcolors = std::views::repeat(std::array{
+                                ansi::background_bright(ansi::color::blue),
+                                ansi::background_dark(ansi::color::blue),
+                            }) |
+                            std::views::join;
   auto bgcolor = std::ranges::begin(bgcolors);
-  constexpr const char *hint_color{"\033[0;49;90m"};
-  os << hint_color << file_hint;
+  constexpr auto hint_color{"\033[0;49;90m"};
+  os << '\r' << hint_color << file_hint << '\n';
   auto square = board.cbegin();
   auto pos = uint64_t{1} << 63;
-  for (const char *rank : {"ｈ", "ｇ", "ｆ", "ｅ", "ｄ", "ｃ", "ｂ", "ａ"}) {
+  for (const auto rank : {"ｈ", "ｇ", "ｆ", "ｅ", "ｄ", "ｃ", "ｂ", "ａ"}) {
     os << rank;
     for (const auto _ : std::views::iota(0, 8)) {
       os << *bgcolor++ << colored_piece(*square++, pos & config.white.get_occupancy());
@@ -375,10 +380,19 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
     os << hint_color << rank << '\n';
     ++bgcolor;
   }
-  return os << file_hint << "\033[0m";
+  return os << file_hint << '\n' << ansi::reset;
 }
 
 int main() {
   constexpr configuration config;
+  std::cout << "start"; // Should be overwritten by the next line.
   std::cout << config << std::endl;
+  std::cin.get();
+
+  constexpr auto fg = ansi::foreground_bright(ansi::color::cyan);
+  constexpr auto bg = ansi::background_dark(ansi::color::red);
+  constexpr auto down_twice = ansi::cursor_down(2);
+  std::cout << ansi::hard_clear_screen << ansi::reset_cursor << down_twice << fg << 2 << ansi::reset
+            << bg << 3 << ansi::reset << std::endl;
+  std::cin.get();
 }
