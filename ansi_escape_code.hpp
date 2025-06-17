@@ -1,3 +1,7 @@
+// https://xn--rpa.cc/irl/term.html
+// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+// https://man.freebsd.org/cgi/man.cgi?query=screen&apropos=0&sektion=4&manpath=FreeBSD+5.4-RELEASE&format=html
 #pragma once
 #include <charconv>
 #include <string>
@@ -39,7 +43,12 @@ constexpr auto cursor_up(const uint8_t offset) { return impl::move_cursor<'A'>(o
 constexpr auto cursor_down(const uint8_t offset) { return impl::move_cursor<'B'>(offset); }
 constexpr auto cursor_forward(const uint8_t offset) { return impl::move_cursor<'C'>(offset); }
 constexpr auto cursor_back(const uint8_t offset) { return impl::move_cursor<'D'>(offset); }
-constexpr auto reset_cursor{"\033[H"};
+constexpr auto cursor_column(const uint8_t offset) { return impl::move_cursor<'G'>(offset); }
+constexpr auto cursor_hide{"\033[?25l"};
+constexpr auto cursor_show{"\033[?25h"};
+constexpr auto cursor_steady_block{"\033[0 q"};
+constexpr auto cursor_blinking_block{"\033[1 q"};
+constexpr auto cursor_reset{"\033[H"};
 
 constexpr auto clear_screen{"\033[2J"};
 constexpr auto hard_clear_screen{"\033[3J\033c"};

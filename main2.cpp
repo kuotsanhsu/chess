@@ -1,8 +1,11 @@
 #include "ansi_escape_code.hpp"
 #include <algorithm>
 #include <cassert>
+#include <csignal>
 #include <iostream>
 #include <ranges>
+#include <termios.h>
+#include <unistd.h>
 
 using square = unsigned _BitInt(6);
 
@@ -360,7 +363,7 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
   for (const auto [piece, shift] : config.black) {
     board[63 ^ shift] = piece;
   }
-  constexpr auto file_hint{"　１２３４５６７８　"};
+  constexpr auto file_hint{"　ａｂｃｄｅｆｇｈ　"};
   constexpr auto bgcolors = std::views::repeat(std::array{
                                 ansi::background_bright(ansi::color::blue),
                                 ansi::background_dark(ansi::color::blue),
@@ -368,10 +371,10 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
                             std::views::join;
   auto bgcolor = std::ranges::begin(bgcolors);
   constexpr auto hint_color{"\033[0;49;90m"};
-  os << '\r' << hint_color << file_hint << '\n';
+  os << hint_color << file_hint << '\n';
   auto square = board.cbegin();
   auto pos = uint64_t{1} << 63;
-  for (const auto rank : {"ｈ", "ｇ", "ｆ", "ｅ", "ｄ", "ｃ", "ｂ", "ａ"}) {
+  for (const auto rank : {"８", "７", "６", "５", "４", "３", "２", "１"}) {
     os << rank;
     for (const auto _ : std::views::iota(0, 8)) {
       os << *bgcolor++ << colored_piece(*square++, pos & config.white.get_occupancy());
@@ -380,19 +383,81 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
     os << hint_color << rank << '\n';
     ++bgcolor;
   }
-  return os << file_hint << '\n' << ansi::reset;
+  return os << file_hint << ansi::reset;
+}
+
+// Note that tcsetattr() returns success if any of the requested changes could be successfully
+// carried out. Therefore, when making multiple changes it may be necessary to follow this call with
+// a further call to tcgetattr() to check that all changes have been performed successfully.
+void assert_tcsetattr(const int fd, const int optional_actions, const termios &expected) {
+  assert(tcsetattr(fd, optional_actions, &expected) == 0);
+  termios actual{};
+  assert(tcgetattr(fd, &actual) == 0);
+  assert(actual.c_iflag == expected.c_iflag);
+  assert(actual.c_oflag == expected.c_oflag);
+  assert(actual.c_cflag == expected.c_cflag);
+  assert(actual.c_lflag == expected.c_lflag);
+}
+
+void noecho() {
+  termios t{};
+  assert(tcgetattr(STDOUT_FILENO, &t) == 0);
+  static const auto initial_termios = t;
+  std::atexit([] {
+    std::cout << ansi::cursor_position(11, 1) << std::flush;
+    assert_tcsetattr(STDOUT_FILENO, TCSANOW, initial_termios);
+  });
+  t.c_lflag &= ~(ECHO | ICANON);
+  assert_tcsetattr(STDOUT_FILENO, TCSANOW, t);
+
+  struct sigaction act{
+      .sa_handler = [](int) { exit(1); },
+      .sa_flags = 0,
+  };
+  assert(sigemptyset(&act.sa_mask) == 0);
+  for (struct sigaction oldact{}; const int signum : {SIGINT, SIGHUP, SIGTERM}) {
+    assert(sigaction(signum, nullptr, &oldact) == 0);
+    if (oldact.sa_handler != SIG_IGN) {
+      assert(sigaction(signum, &act, nullptr) == 0);
+    }
+  }
+}
+
+void loop() {
+  int file = 0, rank = 0, col = 0;
+  while (true) {
+    char ch{};
+    constexpr auto nbyte = sizeof(ch);
+    assert(read(STDIN_FILENO, &ch, nbyte) == nbyte);
+    if ('a' <= ch && ch <= 'h') {
+      if (rank == 0) {
+        file = ch - 'a' + 1;
+        col = file * 2 + 1;
+        std::cout << ansi::cursor_show << ansi::cursor_position(10, col) << std::flush;
+      }
+    } else if ('1' <= ch && ch <= '8') {
+      if (file != 0) {
+        rank = ch - '1' + 1;
+        std::cout << ansi::cursor_position(10 - rank, col) << std::flush;
+      }
+    } else {
+      switch (ch) {
+      case '\n':
+        break;
+      case '\033':
+        file = rank = 0;
+        std::cout << ansi::cursor_hide << std::flush;
+        break;
+      }
+    }
+  }
 }
 
 int main() {
-  constexpr configuration config;
-  std::cout << "start"; // Should be overwritten by the next line.
-  std::cout << config << std::endl;
-  std::cin.get();
+  std::cin.tie(nullptr)->sync_with_stdio(false);
+  noecho();
 
-  constexpr auto fg = ansi::foreground_bright(ansi::color::cyan);
-  constexpr auto bg = ansi::background_dark(ansi::color::red);
-  constexpr auto down_twice = ansi::cursor_down(2);
-  std::cout << ansi::hard_clear_screen << ansi::reset_cursor << down_twice << fg << 2 << ansi::reset
-            << bg << 3 << ansi::reset << std::endl;
-  std::cin.get();
+  constexpr configuration config;
+  std::cout << ansi::hard_clear_screen << ansi::cursor_hide << config << std::flush;
+  loop();
 }
