@@ -83,14 +83,14 @@ void assert_tcsetattr(const int fd, const int optional_actions, const termios &e
 
 void noecho() {
   termios t{};
-  assert(tcgetattr(STDOUT_FILENO, &t) == 0);
+  assert(tcgetattr(STDIN_FILENO, &t) == 0);
   static const auto initial_termios = t;
   std::atexit([] {
     std::cout << ansi::cursor_position(11, 1) << std::flush;
-    assert_tcsetattr(STDOUT_FILENO, TCSANOW, initial_termios);
+    assert_tcsetattr(STDIN_FILENO, TCSAFLUSH, initial_termios);
   });
   t.c_lflag &= ~(ECHO | ICANON);
-  assert_tcsetattr(STDOUT_FILENO, TCSANOW, t);
+  assert_tcsetattr(STDIN_FILENO, TCSAFLUSH, t);
 
   struct sigaction act{
       .sa_handler = [](int) { exit(1); },
@@ -107,10 +107,7 @@ void noecho() {
 
 void loop() {
   int file = 0, rank = 0, col = 0;
-  while (true) {
-    char ch{};
-    constexpr auto nbyte = sizeof(ch);
-    assert(read(STDIN_FILENO, &ch, nbyte) == nbyte);
+  for (char ch; read(STDIN_FILENO, &ch, 1) == 1;) {
     if ('a' <= ch && ch <= 'h') {
       if (rank == 0) {
         file = ch - 'a' + 1;
