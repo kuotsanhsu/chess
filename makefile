@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := main2
+.DEFAULT_GOAL := main
 .SUFFIXES:
 .SUFFIXES: .cpp .o
 
@@ -11,8 +11,7 @@ CPPFLAGS += -MMD -MP -Werror -Wpointer-arith -Wimplicit-fallthrough
 # LDFLAGS += -flto=thin
 
 main: main.o
-main2: main2.o
-main main2:
+main main:
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 .PHONY: clean cleanall

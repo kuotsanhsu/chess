@@ -1,288 +1,145 @@
-#include <array>
-#include <bit>
-#include <cassert>
-#include <cstdint>
-#include <cstdlib>
-#include <optional>
-#include <utility>
+#include "ansi_escape_code.hpp"
+#include "chess.hpp"
+#include <csignal>
+#include <iostream>
+#include <termios.h>
+#include <unistd.h>
 
-// chess board: lower-left is the dark square a1 with white rook
-// d1 is white queen, e1 is white king
-// alphabet for files (columns), digits for ranks (rows)
-// upper-left is msb, lower-right is lsb
-
-class board {
-  const uint64_t black, white, pawn, rook, knight, bishop, queen, king;
-
-public:
-  using iterator = unsigned _BitInt(6);
-
-  class move {
-    const int src_shift, dst_shift;
-
-    template <uint64_t L, uint64_t R = L> [[nodiscard]] constexpr uint64_t path() const noexcept {
-      if (src_shift < dst_shift) {
-        return (L << src_shift) ^ (L << dst_shift);
-      } else {
-        return (R >> (63 ^ src_shift)) ^ (R >> (63 ^ dst_shift));
-        // static_assert((63 - x) == (63 ^ x)); // forall 0 <= x < 64
-      }
-    }
-
-  public:
-    move(const iterator src_shift, const iterator dst_shift)
-        : src_shift(src_shift), dst_shift(dst_shift) {}
-
-    [[nodiscard]] constexpr uint64_t src() const noexcept { return 1 << src_shift; }
-    [[nodiscard]] constexpr uint64_t src(uint64_t mask) const noexcept { return mask & src(); }
-    [[nodiscard]] constexpr uint64_t dst() const noexcept { return 1 << dst_shift; }
-    [[nodiscard]] constexpr uint64_t dst(uint64_t mask) const noexcept { return mask & dst(); }
-    [[nodiscard]] constexpr uint64_t exclude_dst_from(uint64_t mask) const noexcept {
-      return mask & ~dst();
-    }
-
-    /** Returns rank-difference followed by file-difference. */
-    [[nodiscard]] constexpr auto diff() const noexcept {
-      return std::div(dst_shift - src_shift, 8);
-    }
-
-    /** The absolute value of the product of rank-difference and file-difference. */
-    [[nodiscard]] constexpr int mul_diff() const noexcept {
-      const auto [rank_diff, file_diff] = diff();
-      return std::abs(rank_diff * file_diff);
-    }
-
-    /** The four cardinal directions: north, south, east, and west. */
-    [[nodiscard]] constexpr std::optional<uint64_t> cardinal_path() const noexcept {
-      const auto [rank_diff, file_diff] = diff();
-      if (rank_diff == 0) { // same rank
-        return path<0xFFFF'FFFF'FFFF'FFFF>();
-      }
-      if (file_diff == 0) { // same file
-        return path<0x0101'0101'0101'0101, 0x8080'8080'8080'8080>();
-      }
-      return std::nullopt;
-    };
-
-    /** The four ordinal directions: northeast, southeast, southwest, and northwest. */
-    [[nodiscard]] constexpr std::optional<uint64_t> ordinal_path() const noexcept {
-      const auto [rank_diff, file_diff] = diff();
-      if (rank_diff == file_diff) { // northwest-southeast
-        return path<0x8040'2010'0804'0201>();
-      }
-      if (rank_diff == -file_diff) { // northeast-southwest
-        return path<0x0204'0810'2040'8001, 0x8001'0204'0810'2040>();
-      }
-      return std::nullopt;
-    };
-  };
-
-private:
-  [[nodiscard]] constexpr bool empty(const uint64_t mask) const noexcept {
-    return !(mask & (black ^ white));
-  }
-
-  [[nodiscard]] constexpr bool check(const bool is_white) const noexcept {
-    const auto dst_shift = std::countr_zero(king & (is_white ? white : black));
-    uint64_t opponent = is_white ? black : white;
-    do { // `opponent` will never begin as 0, as there is always a king.
-      const uint64_t attacker = opponent & -opponent; // Lowest set bit.
-      if (test_move(move(std::countr_zero(attacker), dst_shift)) != test_move_result_t::invalid) {
-        return true;
-      }
-      opponent ^= attacker;
-    } while (opponent);
-    return false;
-  }
-
-public:
-  constexpr board(board &other) = default;
-  constexpr board(board &&other) = default;
-  board &operator=(board &) = delete;
-  board &operator=(board &&) = delete;
-  ~board() = default;
-
-  /** Initial placement */
-  constexpr board()
-      : board(0xFFFF'0000'0000'0000, 0x0000'0000'0000'FFFF, 0x00FF'0000'0000'FF00,
-              0x8100'0000'0000'0081, 0x4200'0000'0000'0042, 0x2400'0000'0000'0024,
-              0x1000'0000'0000'0010, 0x0800'0000'0000'0008) {}
-
-  constexpr board(const uint64_t black, const uint64_t white, const uint64_t pawn,
-                  const uint64_t rook, const uint64_t knight, const uint64_t bishop,
-                  const uint64_t queen, const uint64_t king)
-      : black(black), white(white), pawn(pawn), rook(rook), knight(knight), bishop(bishop),
-        queen(queen), king(king) {
-    // There are exactly 2 kings.
-    assert(std::popcount(king) == 2);
-
-    // Pieces can be partitioned by color or type.
-    assert((black ^ white) == (pawn ^ rook ^ knight ^ bishop ^ queen ^ king));
-
-    // Pieces of different colors DO NOT share any square.
-    assert((black & white) == 0);
-
-    // Pieces of different types DO NOT share any square.
-    const std::array types{pawn, rook, knight, bishop, queen, king};
-    for (auto first = types.begin(); first != types.end(); ++first) {
-      for (auto second = std::next(first); second != types.end(); ++second) {
-        assert((*first & *second) == 0);
-      }
-    }
-  }
-
-  /**
-   * 1. Must not leave your king attacked after the move.
-   * 2. Stalemate?
-   */
-  [[nodiscard]] constexpr std::optional<board> try_move(const move m) const {
-    // TODO: escape if in check; otherwise, checkmate.
-
-    // src must not be empty.
-    if (!m.src(black) && !m.src(white)) {
-      return std::nullopt;
-    }
-
-    // src and dst are NOT of the same color; dst could be empty.
-    if (m.src(black) && m.dst(black)) {
-      return std::nullopt;
-    }
-    if (m.src(white) && m.dst(white)) {
-      return std::nullopt;
-    }
-
-    // assert(src != dst); // implied by the previous conditions
-
-    auto new_pawn = m.exclude_dst_from(pawn);
-    auto new_rook = m.exclude_dst_from(rook);
-    auto new_knight = m.exclude_dst_from(knight);
-    auto new_bishop = m.exclude_dst_from(bishop);
-    auto new_queen = m.exclude_dst_from(queen);
-    auto new_king = m.exclude_dst_from(king);
-
-    switch (const auto both_ends = m.src(m.dst()); test_move(m)) {
-    case test_move_result_t::invalid:
-      return std::nullopt;
-    case test_move_result_t::pawn:
-      new_pawn ^= both_ends;
-      break;
-    case test_move_result_t::rook:
-      new_rook ^= both_ends;
-      break;
-    case test_move_result_t::knight:
-      new_knight ^= both_ends;
-      break;
-    case test_move_result_t::bishop:
-      new_bishop ^= both_ends;
-      break;
-    case test_move_result_t::queen:
-      new_queen ^= both_ends;
-      break;
-    case test_move_result_t::king:
-      new_king ^= both_ends;
-      break;
-    }
-
-    if (check(m.src(white))) {
-      return std::nullopt;
-    }
-    return board{
-        black ^ m.src(black) ^ m.dst(black),
-        white ^ m.src(white) ^ m.dst(white),
-        new_pawn,
-        new_rook,
-        new_knight,
-        new_bishop,
-        new_queen,
-        new_king,
-    };
-  }
-
-  enum class test_move_result_t { invalid, pawn, rook, knight, bishop, queen, king };
-
-  [[nodiscard]] constexpr test_move_result_t test_move(const class move m) const {
-    if (m.src(pawn)) {
-      // TODO: advancing 1 square
-      // TODO: advancing 2 squares on first move
-      // TODO: regular capturing
-      // TODO: capturing en passant
-      // TODO: promotion at last rank
-      if (m.src(black)) {
-        // TODO: move black pawn.
-      } else { // Move white pawn.
-        constexpr uint64_t last_rank = 0xFF00'0000'0000'0000;
-        // There are NO pawns at the last rank. It must have been promoted.
-        assert(!m.src(last_rank));
-        const auto [rank_diff, file_diff] = m.diff();
-        switch (rank_diff) {
-        case 1: // Advancing 1 square.
-          switch (file_diff) {
-          case 0: // Moving on the same file without capture.
-            assert(empty(m.dst()));
-            if (m.dst(last_rank)) {
-              // TODO: require promotion of the same color as an immediate next step.
-            }
-            break;
-          case -1:
-          case 1:
-            if (empty(m.dst())) {
-              // TODO: capture en passant.
-            } else { // Capture regularly.
-              // Guaranteed to be capturing opponent's piece.
-            }
-            break;
-          default:
-            assert(false);
-          }
-          break;
-        case 2:                                 // Advancing 2 squares.
-          assert(file_diff == 0);               // MUST move on the same file.
-          assert(m.src(0x0000'0000'0000'FF00)); // MUST be first move.
-          assert(empty(m.dst()));
-          // TODO: signal potential capturing en passant for the immediate next step.
-          break;
-        default:
-          assert(false);
-        }
-      }
-      return test_move_result_t::pawn;
-    } else if (m.src(king)) {
-      if (m.mul_diff() < 2) {
-        return test_move_result_t::king;
-      } else {
-        // TODO: castling; no suicide.
-      }
-    } else if (m.src(knight)) {
-      if (m.mul_diff() == 2) {
-        return test_move_result_t::knight;
-      }
-    } else if (m.src(rook)) {
-      if (const auto path = m.cardinal_path()) {
-        if (empty(m.src(*path))) { // All squares between src and dst are empty.
-          return test_move_result_t::rook;
-        }
-      }
-    } else if (m.src(bishop)) {
-      if (const auto path = m.ordinal_path()) {
-        if (empty(m.src(*path))) { // All squares between src and dst are empty.
-          return test_move_result_t::bishop;
-        }
-      }
-    } else if (m.src(queen)) {
-      if (const auto path = m.cardinal_path()) {
-        if (empty(m.src(*path))) { // All squares between src and dst are empty.
-          return test_move_result_t::queen;
-        }
-      } else if (const auto path = m.ordinal_path()) {
-        if (empty(m.src(*path))) { // All squares between src and dst are empty.
-          return test_move_result_t::queen;
-        }
-      }
-    } else {
-      std::unreachable();
-    }
-    return test_move_result_t::invalid;
-  }
+struct colored_piece {
+  piece piece;
+  bool is_white;
 };
 
-int main() { board initial; }
+// https://stackoverflow.com/a/8327034
+std::ostream &operator<<(std::ostream &os, const colored_piece &cp) {
+  constexpr std::array fgcolors{
+      ansi::foreground_bright(ansi::color::green),
+      ansi::foreground_bright(ansi::color::white),
+  };
+  const auto fgcolor = fgcolors[cp.is_white];
+  switch (cp.piece) {
+  case piece::empty:
+    return os << fgcolor << "　";
+  case piece::pawn:
+    return os << fgcolor << (cp.is_white ? "Ｐ" : "ｐ");
+  case piece::rook:
+    return os << fgcolor << (cp.is_white ? "Ｒ" : "ｒ");
+  case piece::knight:
+    return os << fgcolor << (cp.is_white ? "Ｎ" : "ｎ");
+  case piece::bishop:
+    return os << fgcolor << (cp.is_white ? "Ｂ" : "ｂ");
+  case piece::queen:
+    return os << fgcolor << (cp.is_white ? "Ｑ" : "ｑ");
+  case piece::king:
+    return os << fgcolor << (cp.is_white ? "Ｋ" : "ｋ");
+  }
+}
+
+// https://askubuntu.com/a/558422
+std::ostream &operator<<(std::ostream &os, const configuration &config) {
+  std::array<piece, 64> board;
+  std::ranges::fill(board, piece::empty);
+  for (const auto [piece, shift] : config.get_white()) {
+    board[63 ^ shift] = piece;
+  }
+  for (const auto [piece, shift] : config.get_black()) {
+    board[63 ^ shift] = piece;
+  }
+  constexpr auto file_hint{"　ａｂｃｄｅｆｇｈ　"};
+  constexpr auto bgcolors = std::views::repeat(std::array{
+                                ansi::background_bright(ansi::color::blue),
+                                ansi::background_dark(ansi::color::blue),
+                            }) |
+                            std::views::join;
+  auto bgcolor = std::ranges::begin(bgcolors);
+  constexpr auto hint_color{"\033[0;49;90m"};
+  os << hint_color << file_hint << '\n';
+  auto square = board.cbegin();
+  auto pos = uint64_t{1} << 63;
+  for (const auto rank : {"８", "７", "６", "５", "４", "３", "２", "１"}) {
+    os << rank;
+    for (const auto _ : std::views::iota(0, 8)) {
+      os << *bgcolor++ << colored_piece(*square++, pos & config.get_white().get_occupancy());
+      pos >>= 1;
+    }
+    os << hint_color << rank << '\n';
+    ++bgcolor;
+  }
+  return os << file_hint << ansi::reset;
+}
+
+// Note that tcsetattr() returns success if any of the requested changes could be successfully
+// carried out. Therefore, when making multiple changes it may be necessary to follow this call with
+// a further call to tcgetattr() to check that all changes have been performed successfully.
+void assert_tcsetattr(const int fd, const int optional_actions, const termios &expected) {
+  assert(tcsetattr(fd, optional_actions, &expected) == 0);
+  termios actual{};
+  assert(tcgetattr(fd, &actual) == 0);
+  assert(actual.c_iflag == expected.c_iflag);
+  assert(actual.c_oflag == expected.c_oflag);
+  assert(actual.c_cflag == expected.c_cflag);
+  assert(actual.c_lflag == expected.c_lflag);
+}
+
+void noecho() {
+  termios t{};
+  assert(tcgetattr(STDOUT_FILENO, &t) == 0);
+  static const auto initial_termios = t;
+  std::atexit([] {
+    std::cout << ansi::cursor_position(11, 1) << std::flush;
+    assert_tcsetattr(STDOUT_FILENO, TCSANOW, initial_termios);
+  });
+  t.c_lflag &= ~(ECHO | ICANON);
+  assert_tcsetattr(STDOUT_FILENO, TCSANOW, t);
+
+  struct sigaction act{
+      .sa_handler = [](int) { exit(1); },
+      .sa_flags = 0,
+  };
+  assert(sigemptyset(&act.sa_mask) == 0);
+  for (struct sigaction oldact{}; const int signum : {SIGINT, SIGHUP, SIGTERM}) {
+    assert(sigaction(signum, nullptr, &oldact) == 0);
+    if (oldact.sa_handler != SIG_IGN) {
+      assert(sigaction(signum, &act, nullptr) == 0);
+    }
+  }
+}
+
+void loop() {
+  int file = 0, rank = 0, col = 0;
+  while (true) {
+    char ch{};
+    constexpr auto nbyte = sizeof(ch);
+    assert(read(STDIN_FILENO, &ch, nbyte) == nbyte);
+    if ('a' <= ch && ch <= 'h') {
+      if (rank == 0) {
+        file = ch - 'a' + 1;
+        col = file * 2 + 1;
+        std::cout << ansi::cursor_show << ansi::cursor_position(10, col) << std::flush;
+      }
+    } else if ('1' <= ch && ch <= '8') {
+      if (file != 0) {
+        rank = ch - '1' + 1;
+        std::cout << ansi::cursor_position(10 - rank, col) << std::flush;
+      }
+    } else {
+      switch (ch) {
+      case '\n':
+        break;
+      case '\033':
+        file = rank = 0;
+        std::cout << ansi::cursor_hide << std::flush;
+        break;
+      }
+    }
+  }
+}
+
+int main() {
+  std::cin.tie(nullptr)->sync_with_stdio(false);
+  noecho();
+
+  constexpr configuration config;
+  std::cout << ansi::hard_clear_screen << ansi::cursor_hide << config << std::flush;
+  loop();
+}
