@@ -22,3 +22,7 @@ do {
 ```
 
 - highest bit set: for 32 bits, use [de Bruijn multiplication](https://stackoverflow.com/a/31718095).
+
+- C++ string literal concatenate
+    - https://stackoverflow.com/a/75866219
+    - https://stackoverflow.com/a/72510788
