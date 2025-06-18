@@ -1,5 +1,6 @@
 .cache/
 .llvmcache/
+.makecache/
 compile_commands.json
 *.o
 *.d
