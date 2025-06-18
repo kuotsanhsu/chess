@@ -53,7 +53,7 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
                             std::views::join;
   auto bgcolor = std::ranges::begin(bgcolors);
   constexpr auto hint_color{"\033[0;49;90m"};
-  os << hint_color << file_hint << '\n';
+  os << hint_color << file_hint << "\r\n";
   auto square = board.cbegin();
   auto pos = uint64_t{1} << 63;
   for (const auto rank : {"８", "７", "６", "５", "４", "３", "２", "１"}) {
@@ -62,7 +62,7 @@ std::ostream &operator<<(std::ostream &os, const configuration &config) {
       os << *bgcolor++ << colored_piece(*square++, pos & config.get_white().get_occupancy());
       pos >>= 1;
     }
-    os << hint_color << rank << '\n';
+    os << hint_color << rank << "\r\n";
     ++bgcolor;
   }
   return os << file_hint << ansi::reset;
@@ -89,7 +89,8 @@ void noecho() {
     std::cout << ansi::cursor_position(11, 1) << std::flush;
     assert_tcsetattr(STDIN_FILENO, TCSAFLUSH, initial_termios);
   });
-  t.c_lflag &= ~(ECHO | ICANON);
+  cfmakeraw(&t);
+  t.c_lflag |= ISIG;
   assert_tcsetattr(STDIN_FILENO, TCSAFLUSH, t);
 
   struct sigaction act{
@@ -107,7 +108,7 @@ void noecho() {
 
 void loop() {
   int file = 0, rank = 0, col = 0;
-  for (char ch; read(STDIN_FILENO, &ch, 1) == 1;) {
+  for (char ch = '\0'; read(STDIN_FILENO, &ch, 1) == 1;) {
     if ('a' <= ch && ch <= 'h') {
       if (rank == 0) {
         file = ch - 'a' + 1;

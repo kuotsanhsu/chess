@@ -4,4 +4,4 @@ compile_commands.json
 *.d
 *.dSYM/
 main
-main2
+*.trace
