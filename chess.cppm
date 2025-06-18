@@ -1,16 +1,17 @@
-#pragma once
+module;
 #include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdlib>
 #include <ranges>
 #include <utility>
+export module chess;
 
-using square = unsigned _BitInt(6);
+export using square = unsigned _BitInt(6);
 
-enum class piece { empty, pawn, rook, knight, bishop, queen, king };
+export enum class piece { empty, pawn, rook, knight, bishop, queen, king };
 
-class side {
+export class side {
   static constexpr std::array initial_rank1{
       piece::rook, piece::knight, piece::bishop, piece::queen,
       piece::king, piece::bishop, piece::knight, piece::rook,
@@ -100,7 +101,7 @@ public:
 
 static_assert(std::ranges::sized_range<side>);
 
-class move {
+export class move {
   int src_square, dst_square;
 
   template <uint64_t L, uint64_t R = L>
@@ -169,7 +170,7 @@ public:
   };
 };
 
-class configuration {
+export class configuration {
   side white, black;
 
   constexpr configuration(const side white, const side black) : white(white), black(black) {

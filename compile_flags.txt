@@ -1,0 +1,8 @@
+-std=c++23
+-fprebuilt-module-path=.
+-fno-exceptions
+-Werror
+-Wpointer-arith
+-Wimplicit-fallthrough
+-Wno-c99-designator
+-Wno-c23-extensions

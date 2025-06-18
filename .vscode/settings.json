@@ -20,7 +20,7 @@
   "clangd.fallbackFlags": [
     "-xc++"
   ],
-  "makefile.compileCommandsPath": "${workspaceFolder}/compile_commands.json",
+  // "makefile.compileCommandsPath": "${workspaceFolder}/compile_commands.json",
   "makefile.preConfigureScript": "${workspaceFolder}/.vscode/export.sh",
   "makefile.configurations": [
     {
@@ -29,6 +29,8 @@
         "--jobs=4"
       ],
       "preConfigureArgs": [
+        "CC=/opt/homebrew/opt/llvm/bin/clang",
+        "CXX=/opt/homebrew/opt/llvm/bin/clang++",
         "CPPFLAGS='-glldb -gsplit-dwarf'"
       ]
     }
@@ -38,7 +40,13 @@
       "cwd": "${workspaceFolder}",
       "binaryPath": "${workspaceFolder}/main",
       "binaryArgs": []
+    },
+    {
+      "cwd": "/Users/gordonh/chess",
+      "binaryPath": "/Users/gordonh/chess/hello",
+      "binaryArgs": []
     }
   ],
-  "makefile.configureOnOpen": false
+  "makefile.configureOnOpen": false,
+  "clangd.path": "/opt/homebrew/opt/llvm/bin/clangd"
 }

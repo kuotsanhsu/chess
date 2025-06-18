@@ -1,7 +1,10 @@
 .cache/
 compile_commands.json
+*.pcm
+*.out
 *.o
 *.d
 *.dSYM/
+hello
 main
 *.trace

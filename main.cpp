@@ -1,7 +1,10 @@
-#include "ansi_escape_code.hpp"
-#include "chess.hpp"
+import chess;
+import ansi;
+#include <algorithm>
+#include <cassert>
 #include <csignal>
 #include <iostream>
+#include <ranges>
 #include <termios.h>
 #include <unistd.h>
 

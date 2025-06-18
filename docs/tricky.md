@@ -26,3 +26,12 @@ do {
 - C++ string literal concatenate
     - https://stackoverflow.com/a/75866219
     - https://stackoverflow.com/a/72510788
+
+- `infocmp -L -1` to print out a terminfo entry for current TERM
+
+https://github.com/clangd/clangd/issues/591#issuecomment-727978088
+> Unfortunately, clang's .pcm format is not stable across even minor versions, which means you must have the exact same version of clang and clangd to share prebuilt modules between them.
+
+- https://clang.llvm.org/docs/JSONCompilationDatabase.html
+- https://clang.llvm.org/docs/StandardCPlusPlusModules.html#discovering-dependencies
+- https://clang.llvm.org/docs/ClangCommandLineReference.html#dependency-file-generation

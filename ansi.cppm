@@ -2,15 +2,16 @@
 // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
 // https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 // https://man.freebsd.org/cgi/man.cgi?query=screen&apropos=0&sektion=4&manpath=FreeBSD+5.4-RELEASE&format=html
-#pragma once
+module;
 #include <charconv>
 #include <string>
+export module ansi;
 
 // The escape character, '\033', followed by
 // the control sequence introducer (CSI), '[', followed by
 // parameters separated by ';', followed by
 // a command character.
-namespace ansi {
+export namespace ansi {
 
 // Rows and columns are 1-based.
 constexpr std::string cursor_position(const uint8_t row, const uint8_t col) {

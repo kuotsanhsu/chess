@@ -1,22 +1,35 @@
 .DEFAULT_GOAL := main
-.SUFFIXES:
 .SUFFIXES: .cpp .o
 
 srcs := $(wildcard *.cpp)
 objs := $(srcs:.cpp=.o)
 deps := $(objs:.o=.d)
 -include $(deps)
-CXXFLAGS += -std=c++23 -fno-exceptions -Wno-c23-extensions
-CPPFLAGS += -MMD -MP -Werror -Wpointer-arith -Wimplicit-fallthrough
+CXXFLAGS += @compile_flags.txt
+CPPFLAGS += -MMD -MP
+# CPPFLAGS += -MMD -MP -MJ compile_commands.json
 # LDFLAGS += -flto=thin
 
-main: main.o
-main main:
+%.pcm: CXXFLAGS += --precompile
+%.pcm: %.cppm
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) $(OUTPUT_OPTION) $<
+%.o: %.pcm
+	$(CXX) $(CXXFLAGS) $(TARGET_ARCH) -c $(OUTPUT_OPTION) $<
+%: %.o
+	$(CXX) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
+%: %.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
+
+main: main.cpp chess.pcm ansi.pcm
+hello: hello.cpp greet.pcm
+
+# %.o: %.cpp
+# 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c $(OUTPUT_OPTION) $<
+# %: %.cpp
+# 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
+# %: %.o
+# 	$(CC) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 .PHONY: clean cleanall
 clean:
-	$(RM) $(objs) $(objs:.o=)
-cleanall: clean
-	$(RM) $(deps)
-	rm -fr $(wildcard *.dSYM)
+	rm -fr *.pcm *.o *.d *.dSYM
