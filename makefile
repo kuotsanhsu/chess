@@ -8,7 +8,7 @@ CXXFLAGS += @compile_flags.txt
 CPPFLAGS += -MMD -MP
 
 %: %.o
-	$(CXX) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
+	$(CXX) $(LDFLAGS) $(TARGET_ARCH) $(LDLIBS) -o $@ $^
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c -o $@ $<
 
