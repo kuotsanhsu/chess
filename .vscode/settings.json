@@ -1,6 +1,6 @@
 {
   "terminal.integrated.minimumContrastRatio": 1,
-  "[json][jsonc][cpp]": {
+  "[json][jsonc][yaml][cpp]": {
     "editor.formatOnSave": true,
     "editor.insertSpaces": true,
     "editor.tabSize": 2,
@@ -8,6 +8,11 @@
     "editor.codeActionsOnSave": {
       "source.fixAll": "explicit"
     }
+  },
+  "files.associations": {
+    ".clang-format": "yaml",
+    ".clang-tidy": "yaml",
+    ".clangd": "yaml"
   },
   "yaml.schemas": {
     "https://json.schemastore.org/clang-format.json": ".clang-format",
@@ -24,12 +29,23 @@
   "makefile.preConfigureScript": "${workspaceFolder}/.vscode/export.sh",
   "makefile.configurations": [
     {
-      "name": "Debug",
+      "name": "Apple Clang",
       "makeArgs": [
         "--jobs=4"
       ],
       "preConfigureArgs": [
-        "CPPFLAGS='-glldb -gsplit-dwarf'"
+        "LDFLAGS='-flto=thin -Wl,-mllvm,-threads=4 -Wl,-cache_path_lto,.llvmcache'",
+        "CXXFLAGS='-glldb -flto=thin'"
+      ]
+    },
+    {
+      "name": "Clang",
+      "makeArgs": [
+        "--jobs=4"
+      ],
+      "preConfigureArgs": [
+        "LDFLAGS='-Wl,--gdb-index -flto=thin -Wl,-mllvm,-threads=4 -Wl,-cache_path_lto,.llvmcache'",
+        "CXXFLAGS='-glldb -gsplit-dwarf -flto=thin'"
       ]
     }
   ],

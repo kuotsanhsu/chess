@@ -1,22 +1,18 @@
-.DEFAULT_GOAL := main
+.DEFAULT_GOAL := all
+.DELETE_ON_ERROR:
 .SUFFIXES:
-.SUFFIXES: .cpp .o
 
-srcs := $(wildcard *.cpp)
-objs := $(srcs:.cpp=.o)
-deps := $(objs:.o=.d)
--include $(deps)
-CXXFLAGS += -std=c++23 -fno-exceptions -Wno-c23-extensions
-CPPFLAGS += -MMD -MP -Werror -Wpointer-arith -Wimplicit-fallthrough
-# LDFLAGS += -flto=thin
+cpps := $(wildcard *.cpp)
+-include $(cpps:.cpp=.d)
+CXXFLAGS += @compile_flags.txt
+CPPFLAGS += -MMD -MP
 
-main: main.o
-main main:
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
+%: %.o
+	$(CXX) $(LDFLAGS) $(TARGET_ARCH) $^ $(LOADLIBES) $(LDLIBS) -o $@
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c -o $@ $<
 
-.PHONY: clean cleanall
+.PHONY: clean all
+all: main
 clean:
-	$(RM) $(objs) $(objs:.o=)
-cleanall: clean
-	$(RM) $(deps)
-	rm -fr $(wildcard *.dSYM)
+	rm -fr $(.DEFAULT_GOAL) *.{o,d,dSYM} compile_commands.json
